@@ -1,14 +1,187 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Page title</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Falling Circles on Lines</title>
+    <style>
+        canvas { border: 1px solid black; background: #f0f0f0; }
+    </style>
 </head>
 <body>
-    <button>Button</button>
-    <canvas id="c" width="400" height="300"></canvas>
-    
-    <script src="script.js"></script>
+    <canvas id="canvas" width="800" height="500"></canvas>
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Physics constants
+        const GRAVITY = 0.2;
+        const RESTITUTION = 0.8; // Bounciness (0-1)
+        const FRICTION = 0.99; // Friction factor (0-1)
+        
+        // Create multiple circles
+        const circles = Array(10).fill().map((_, i) => ({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height * 0.3,
+            radius: 10 + Math.random() * 15,
+            vx: Math.random() * 2 - 1,
+            vy: 0,
+            color: `hsl(${Math.random() * 360}, 70%, 60%)`
+        }));
+        
+        // Create multiple lines at different angles
+        const lines = [
+            { start: { x: 100, y: 100 }, end: { x: 700, y: 150 }, color: '#333' },
+            { start: { x: 50, y: 300 }, end: { x: 750, y: 250 }, color: '#333' },
+            { start: { x: 200, y: 400 }, end: { x: 600, y: 350 }, color: '#333' },
+            { start: { x: 0, y: 450 }, end: { x: 300, y: 500 }, color: '#333' },
+            { start: { x: 500, y: 450 }, end: { x: 800, y: 400 }, color: '#333' }
+        ];
+        
+        // Main game loop
+        function gameLoop() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Update and draw all circles
+            circles.forEach(circle => {
+                // Apply gravity
+                circle.vy += GRAVITY;
+                
+                // Apply friction
+                circle.vx *= FRICTION;
+                
+                // Update position
+                circle.x += circle.vx;
+                circle.y += circle.vy;
+                
+                // Check collisions with all lines
+                lines.forEach(line => {
+                    checkCircleLineCollision(circle, line);
+                });
+                
+                // Boundary checks (floor collision)
+                if (circle.y + circle.radius > canvas.height) {
+                    circle.y = canvas.height - circle.radius;
+                    circle.vy = -circle.vy * RESTITUTION;
+                    circle.vx *= FRICTION;
+                }
+                
+                // Draw circle
+                ctx.beginPath();
+                ctx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
+                ctx.fillStyle = circle.color;
+                ctx.fill();
+                ctx.strokeStyle = '#000';
+                ctx.stroke();
+            });
+            
+            // Draw all lines
+            lines.forEach(line => {
+                ctx.beginPath();
+                ctx.moveTo(line.start.x, line.start.y);
+                ctx.lineTo(line.end.x, line.end.y);
+                ctx.strokeStyle = line.color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Collision detection and response
+        function checkCircleLineCollision(circle, line) {
+            // Vector from line start to end
+            const lineVec = {
+                x: line.end.x - line.start.x,
+                y: line.end.y - line.start.y
+            };
+            
+            // Vector from line start to circle center
+            const circleVec = {
+                x: circle.x - line.start.x,
+                y: circle.y - line.start.y
+            };
+            
+            // Calculate dot product and line length squared
+            const dot = circleVec.x * lineVec.x + circleVec.y * lineVec.y;
+            const lenSq = lineVec.x * lineVec.x + lineVec.y * lineVec.y;
+            
+            // Calculate projection parameter (position along line)
+            let param = 0;
+            if (lenSq !== 0) param = dot / lenSq;
+            
+            // Find closest point on line segment
+            let closestPoint;
+            if (param < 0) {
+                closestPoint = line.start;
+            } else if (param > 1) {
+                closestPoint = line.end;
+            } else {
+                closestPoint = {
+                    x: line.start.x + param * lineVec.x,
+                    y: line.start.y + param * lineVec.y
+                };
+            }
+            
+            // Distance vector from circle to closest point
+            const distVec = {
+                x: circle.x - closestPoint.x,
+                y: circle.y - closestPoint.y
+            };
+            
+            // Calculate distance squared (optimization)
+            const distSq = distVec.x * distVec.x + distVec.y * distVec.y;
+            const radiusSq = circle.radius * circle.radius;
+            
+            // Collision detected
+            if (distSq <= radiusSq) {
+                // Calculate actual distance (only when needed)
+                const distance = Math.sqrt(distSq);
+                
+                // Calculate normal vector (perpendicular to line)
+                const normal = normalize({
+                    x: -lineVec.y,
+                    y: lineVec.x
+                });
+                
+                // Calculate overlap depth
+                const depth = circle.radius - distance;
+                
+                // Move circle out of collision
+                circle.x += normal.x * depth;
+                circle.y += normal.y * depth;
+                
+                // Calculate dot product of velocity and normal
+                const dotProduct = circle.vx * normal.x + circle.vy * normal.y;
+                
+                // Apply bounce (reflect velocity)
+                circle.vx -= 2 * dotProduct * normal.x * RESTITUTION;
+                circle.vy -= 2 * dotProduct * normal.y * RESTITUTION;
+                
+                // Apply friction along the line
+                const tangent = normalize({
+                    x: lineVec.x,
+                    y: lineVec.y
+                });
+                
+                const tangentSpeed = circle.vx * tangent.x + circle.vy * tangent.y;
+                circle.vx = tangent.x * tangentSpeed * FRICTION;
+                circle.vy = tangent.y * tangentSpeed * FRICTION;
+            }
+        }
+        
+        // Helper function to normalize a vector
+        function normalize(vec) {
+            const length = Math.sqrt(vec.x * vec.x + vec.y * vec.y);
+            if (length === 0) return { x: 0, y: 0 };
+            return {
+                x: vec.x / length,
+                y: vec.y / length
+            };
+        }
+        
+        // Start simulation
+        gameLoop();
+    </script>
 </body>
 </html>
